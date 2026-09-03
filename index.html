@@ -1935,10 +1935,13 @@ $("authSubmit").onclick=async()=>{
       const {data,error}=await sb.auth.signUp({email,password});
       if(error)throw error;
       if(data.session){
+        // Ne lance pas l'application directement ici : sur iOS/Safari,
+        // la session peut ne pas être encore persistée au moment exact du login.
+        // On laisse bootBOB attendre la vraie session puis démarrer une seule fois.
         user=data.user;
         renderProfileButton();
-        await ensureDefaultPlaylists();
-        await startApp();
+        const s=await sb.auth.getSession();
+        await bootBOB(s?.data?.session||data.session);
       }else{
         alert("Compte créé. Tu peux maintenant te connecter.");
         setAuthMode("login");
@@ -1948,7 +1951,15 @@ $("authSubmit").onclick=async()=>{
       if(error)throw error;
       user=data.user;
       renderProfileButton();
-      await startApp();
+      // Important sur iPhone/Safari : attendre que Supabase ait bien écrit
+      // la session avant toute requête sur playlists.
+      let session=data.session;
+      for(let i=0;i<6;i++){
+        const ss=await sb.auth.getSession();
+        if(ss?.data?.session?.access_token){session=ss.data.session;break;}
+        await new Promise(r=>setTimeout(r,300));
+      }
+      await bootBOB(session);
     }
   }catch(err){
     console.error(err);
@@ -2245,6 +2256,18 @@ let bobStarting=false;
 let bobStarted=false;
 
 async function bootBOB(session){
+  // Sur iOS, getSession() peut retourner une session juste avant que le
+  // jeton soit réellement disponible pour les requêtes REST/PostgREST.
+  // On attend/re-lit la session quelques fois avant de charger les playlists.
+  if(!session?.user){
+    try{
+      for(let i=0;i<6 && !session?.user;i++){
+        const ss=await sb.auth.getSession();
+        session=ss?.data?.session||null;
+        if(!session?.user) await new Promise(r=>setTimeout(r,300));
+      }
+    }catch(e){ console.warn("BOB session retry",e); }
+  }
   if(!session?.user){
     user=null;
     $("homeScreen").style.display="none";
@@ -2255,13 +2278,15 @@ async function bootBOB(session){
   if(bobStarting || bobStarted)return;
   bobStarting=true;
   try{
-    // Sur iOS/Safari, attendre que la session soit réellement disponible
-    // avant les requêtes Supabase évite le démarrage trop tôt après login.
     user=session.user;
+    // Vérifie encore la session juste avant les requêtes playlists.
     try{
-      const check=await sb.auth.getUser();
-      if(check?.data?.user) user=check.data.user;
-    }catch(e){ console.warn("BOB getUser",e); }
+      const ss=await sb.auth.getSession();
+      if(ss?.data?.session?.user){
+        session=ss.data.session;
+        user=session.user;
+      }
+    }catch(e){ console.warn("BOB getSession",e); }
     renderProfileButton();
     const sharedCode=new URLSearchParams(location.search).get("p");
     if(sharedCode){
@@ -2275,7 +2300,6 @@ async function bootBOB(session){
     bobStarting=false;
   }
 }
-
 sb.auth.getSession().then(({data})=>bootBOB(data?.session)).catch(err=>{
   console.error("BOB session",err);
   showAuth();
