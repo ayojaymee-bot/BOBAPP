@@ -1744,12 +1744,15 @@ async function publicPlaylistTrackRows(playlistIds){
 
 async function ensureDefaultPlaylists(){
   const data=await publicPlaylistRows();
-  // On the affected iPhone, authenticated REST requests can hang. Only try
-  // the normal insert when the public read returns nothing; otherwise keep
-  // the already-visible library untouched.
-  if(data.length===0){
-    const rows=[1,2,3,4].map((_,i)=>({user_id:user.id,name:"Playlist "+(i+1),is_public:true}));
-    const {error:e}=await sb.from("playlists").insert(rows);
+  // Do not stop merely because some playlists are visible: on the affected
+  // iPhone a partial RLS result can hide one or more of the four defaults.
+  const existing=new Set((data||[]).map(p=>String(p.name||"").trim().toLowerCase()));
+  const missing=[1,2,3,4]
+    .map(i=>`Playlist ${i}`)
+    .filter(name=>!existing.has(name.toLowerCase()))
+    .map(name=>({user_id:user.id,name,is_public:true}));
+  if(missing.length){
+    const {error:e}=await sb.from("playlists").insert(missing);
     if(e)throw e;
   }
 }
