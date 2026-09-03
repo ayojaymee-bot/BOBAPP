@@ -2402,43 +2402,127 @@ async function runBobDiagnostic(){
   bobDiagSet("bobDiagSession","Session : récupération…");
   bobDiagSet("bobDiagPlaylist","Playlists : récupération…");
   bobDiagSet("bobDiagNetwork","Connexion Supabase : test…");
+
+  const timeout = (promise, ms, label) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT après "+ms+" ms — "+label)), ms))
+  ]);
+
   try {
-    const sres=await sb.auth.getSession();
+    const sres = await timeout(sb.auth.getSession(), 8000, "récupération de session");
     if(sres.error) throw new Error("getSession : "+sres.error.message);
+
     const session=sres.data && sres.data.session;
     if(!session){
       bobDiagSet("bobDiagStatus","❌ AUCUNE SESSION SUPABASE",false);
       bobDiagSet("bobDiagSession","Aucune session n'est disponible sur cet iPhone.",false);
       bobDiagSet("bobDiagPlaylist","Impossible de tester les playlists.",false);
+      bobDiagSet("bobDiagNetwork","La session a été obtenue sans erreur.",true);
       return;
     }
+
     const uid=session.user.id;
-    bobDiagSet("bobDiagSession","✅ SESSION TROUVÉE\n\nEmail : "+(session.user.email||"(aucun)")+"\nUser ID : "+uid+"\nToken : présent",true);
-    const endpoint='https://ijvzeakiljqpejvilgye.supabase.co'+"/rest/v1/playlists?select=id,name,cover_url,is_public,share_code,source_playlist_id,created_at&user_id=eq."+encodeURIComponent(uid)+"&order=created_at.asc";
+    bobDiagSet("bobDiagSession",
+      "✅ SESSION TROUVÉE
+
+"+
+      "Email : "+(session.user.email||"(aucun)")+"
+"+
+      "User ID : "+uid+"
+"+
+      "Token : présent",true);
+
+    const endpoint="https://ijvzeakiljqpejvilgye.supabase.co/rest/v1/playlists?select=id,name,cover_url,is_public,share_code,source_playlist_id,created_at&user_id=eq."+encodeURIComponent(uid)+"&order=created_at.asc";
+
     const t=Date.now();
-    const r=await fetch(endpoint,{
-      method:"GET",
-      cache:"no-store",
-      headers:{"apikey":'sb_publishable_r7nDUdy9W7oFcWm7PYD8fA__IiJ8NWC',"Authorization":"Bearer "+session.access_token,"Accept":"application/json"}
-    });
-    const txt=await r.text();
-    bobDiagSet("bobDiagNetwork",(r.ok?"✅":"❌")+" HTTP "+r.status+"\nTemps : "+(Date.now()-t)+" ms\n\n"+txt.slice(0,2500),r.ok);
-    if(!r.ok){
-      bobDiagSet("bobDiagPlaylist","❌ REQUÊTE PLAYLISTS REFUSÉE\n\nHTTP "+r.status+"\n"+txt,false);
-      bobDiagSet("bobDiagStatus","❌ PROBLÈME SUPABASE / RÈGLES / SESSION",false);
+    let r;
+    try {
+      r=await timeout(fetch(endpoint,{
+        method:"GET",
+        cache:"no-store",
+        headers:{
+          "apikey":"sb_publishable_r7nDUdy9W7oFcWm7PYD8fA__IiJ8NWC",
+          "Authorization":"Bearer "+session.access_token,
+          "Accept":"application/json"
+        }
+      }),10000,"requête REST Supabase");
+    } catch(netErr) {
+      const msg=netErr && netErr.message ? netErr.message : String(netErr);
+      bobDiagSet("bobDiagNetwork",
+        "❌ AUCUNE RÉPONSE DE SUPABASE
+
+"+
+        msg+"
+
+"+
+        "Temps : "+(Date.now()-t)+" ms
+
+"+
+        "Le téléphone arrive à se connecter, mais la requête REST vers Supabase ne répond pas.",
+        false);
+      bobDiagSet("bobDiagPlaylist",
+        "❌ REQUÊTE BLOQUÉE OU EXPIRÉE
+
+"+
+        "Ce n'est pas un problème d'affichage des playlists.",
+        false);
+      bobDiagSet("bobDiagStatus",
+        "❌ PROBLÈME RÉSEAU / CONNEXION SUPABASE SUR CET APPAREIL",
+        false);
       return;
     }
-    let rows=[]; try{rows=JSON.parse(txt)}catch(e){}
+
+    const txt=await r.text();
+    bobDiagSet("bobDiagNetwork",
+      (r.ok?"✅":"❌")+" HTTP "+r.status+"
+"+
+      "Temps : "+(Date.now()-t)+" ms
+
+"+
+      txt.slice(0,2500),r.ok);
+
+    if(!r.ok){
+      bobDiagSet("bobDiagPlaylist",
+        "❌ REQUÊTE PLAYLISTS REFUSÉE
+
+HTTP "+r.status+"
+"+txt,false);
+      bobDiagSet("bobDiagStatus",
+        "❌ PROBLÈME SUPABASE / RÈGLES / SESSION",false);
+      return;
+    }
+
+    let rows=[];
+    try{rows=JSON.parse(txt)}catch(e){}
+
     if(Array.isArray(rows) && rows.length){
-      bobDiagSet("bobDiagPlaylist","✅ "+rows.length+" PLAYLIST(S) TROUVÉE(S)\n\n"+rows.map((p,i)=>(i+1)+". "+(p.name||"(sans nom)")+"\nid: "+p.id).join("\n\n"),true);
-      bobDiagSet("bobDiagStatus","✅ SUPABASE RENVOIE TES PLAYLISTS\n\nLe problème est dans le chargement/rendu de BOB.",true);
+      bobDiagSet("bobDiagPlaylist",
+        "✅ "+rows.length+" PLAYLIST(S) TROUVÉE(S)
+
+"+
+        rows.map((p,i)=>(i+1)+". "+(p.name||"(sans nom)")+"
+id: "+p.id).join("
+
+"),true);
+      bobDiagSet("bobDiagStatus",
+        "✅ SUPABASE RENVOIE TES PLAYLISTS
+
+Le problème est dans le chargement/rendu de BOB.",true);
     }else{
-      bobDiagSet("bobDiagPlaylist","⚠️ SUPABASE RENVOIE 0 PLAYLIST\n\nUser ID : "+uid,false);
-      bobDiagSet("bobDiagStatus","⚠️ SESSION OK MAIS 0 PLAYLIST RENVOYÉE",false);
+      bobDiagSet("bobDiagPlaylist",
+        "⚠️ SUPABASE RENVOIE 0 PLAYLIST
+
+User ID : "+uid,false);
+      bobDiagSet("bobDiagStatus",
+        "⚠️ SESSION OK MAIS 0 PLAYLIST RENVOYÉE",false);
     }
   } catch(e) {
-    bobDiagSet("bobDiagStatus","❌ ERREUR\n\n"+(e&&e.stack?e.stack:String(e)),false);
-    bobDiagSet("bobDiagNetwork","❌ "+(e&&e.message?e.message:String(e)),false);
+    bobDiagSet("bobDiagStatus",
+      "❌ ERREUR
+
+"+(e&&e.stack?e.stack:String(e)),false);
+    bobDiagSet("bobDiagNetwork",
+      "❌ "+(e&&e.message?e.message:String(e)),false);
   }
 }
 </script>
