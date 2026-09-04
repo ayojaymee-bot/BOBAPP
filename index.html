@@ -1901,9 +1901,9 @@ async function startApp(){
     await loadTracks();
     await loadPlaylists();
     renderHome();
-    renderProfile();
-    $("accountButton").style.display="flex";
     showHome();
+    // Le profil est chargé après l'affichage de l'accueil afin de ne jamais bloquer les playlists.
+    try{ renderProfile(); $("accountButton").style.display="flex"; }catch(e){ console.warn("BOB profile",e); }
     startPlaylistSync();
   }catch(err){
     console.error(err);
@@ -2013,8 +2013,12 @@ sb.auth.getSession().then(async({data})=>{
 });
 sb.auth.onAuthStateChange((_event,session)=>{
   user=session?.user||null;
-  if(user){renderProfile();if($("accountButton"))$("accountButton").style.display="flex";}
-  else if($("accountButton"))$("accountButton").style.display="none";
+  // Le profil ne doit jamais interrompre le chargement des playlists sur iPhone.
+  if(user){
+    if($("accountButton"))$("accountButton").style.display="flex";
+  }else{
+    if($("accountButton"))$("accountButton").style.display="none";
+  }
 });
 setAuthMode("login");
 hideBootSplash();
