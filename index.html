@@ -765,7 +765,7 @@ body::before{
 </style>
 
 <style id="bob-profile-style">
-.profile-overlay{position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:10000;display:flex;align-items:center;justify-content:center;padding:22px}
+.profile-overlay{position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:10000;display:none!important;align-items:center;justify-content:center;padding:22px}.profile-overlay.is-open{display:flex!important}
 .profile-box{position:relative;width:min(92vw,420px);background:#030303;border:1.5px solid #333;border-radius:20px;padding:28px;box-shadow:0 0 0 1px #050505 inset;text-align:center}
 .profile-close{position:absolute;right:12px;top:8px;width:38px!important;height:38px!important;margin:0!important;background:transparent!important;border:0!important;color:#fff;font-size:28px;font-weight:400;cursor:pointer}
 .profile-avatar-wrap{position:relative;width:104px;height:104px;margin:0 auto 18px}
@@ -1704,8 +1704,8 @@ function renderProfile(){
   if(p.avatar){av.innerHTML=`<img src="${p.avatar}" alt="">`;}
   else av.textContent=(p.pseudo||"BOB").slice(0,1).toUpperCase();
 }
-function openProfile(){if(!user){showAuth();return;}renderProfile();$("profileOverlay").style.display="flex";}
-function closeProfile(){$("profileOverlay").style.display="none";}
+function openProfile(){if(!user){showAuth();return;}renderProfile();$("profileOverlay").classList.add("is-open");}
+function closeProfile(){$("profileOverlay").classList.remove("is-open");}
 async function compressProfileImage(file){
   return await new Promise((resolve,reject)=>{
     const img=new Image(), reader=new FileReader();
@@ -1902,8 +1902,7 @@ async function startApp(){
     await loadPlaylists();
     renderHome();
     showHome();
-    // Le profil est chargé après l'affichage de l'accueil afin de ne jamais bloquer les playlists.
-    try{ renderProfile(); $("accountButton").style.display="flex"; }catch(e){ console.warn("BOB profile",e); }
+    $("accountButton").style.display="flex";
     startPlaylistSync();
   }catch(err){
     console.error(err);
